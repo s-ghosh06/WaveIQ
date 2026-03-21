@@ -272,3 +272,124 @@ def render_footer() -> None:
         &nbsp;·&nbsp; Streamlit &amp; Plotly
     </div>
     """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SAMPLING REGIME PANEL  (Gap 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_regime_panel(regime: dict) -> None:
+    """
+    Displays the current sampling regime clearly:
+    Under-Sampling | Nyquist Sampling | Over-Sampling
+    with color coding and description.
+    """
+    color  = regime["color"]
+    bg     = regime["bg"]
+    label  = regime["label"]
+    ratio  = regime["ratio"]
+    desc   = regime["description"]
+
+    # Three regime cards always visible
+    c1, c2, c3 = st.columns(3)
+    regime_name = regime["regime"]
+
+    for col, (name, display, clr, bkg) in zip(
+        [c1, c2, c3],
+        [
+            ("under",   "① Under-Sampling\nfs < 2f",    "#E74C3C", "#FDEDEC"),
+            ("nyquist", "② Nyquist Sampling\nfs ≈ 2f",  "#F39C12", "#FEF9E7"),
+            ("over",    "③ Over-Sampling\nfs > 2f",     "#27AE60", "#EAFAF1"),
+        ],
+    ):
+        is_active = (name == regime_name) or \
+                    (name == "over" and regime_name == "over")
+        border = f"3px solid {clr}" if is_active else f"1px solid {clr}44"
+        opacity = "1" if is_active else "0.45"
+        st.markdown(f"""
+        <div style="background:{bkg};border:{border};border-radius:10px;
+                    padding:0.8rem 1rem;text-align:center;opacity:{opacity};
+                    transition:all 0.2s;">
+            <div style="font-size:0.75rem;font-weight:700;color:{clr};
+                        white-space:pre-line;line-height:1.5;">
+                {display}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Active regime description
+    st.markdown(f"""
+    <div style="background:{bg};border-left:4px solid {color};
+                border-radius:8px;padding:0.75rem 1rem;margin-top:0.6rem;">
+        <span style="font-weight:700;color:{color};font-size:0.88rem;">
+            {label}
+        </span>
+        <span style="color:#2D3748;font-size:0.84rem;margin-left:0.5rem;">
+            — {desc}
+        </span>
+        <span style="font-family:'IBM Plex Mono',monospace;
+                     font-size:0.78rem;color:{color};margin-left:0.5rem;">
+            (fs/Nyquist = {ratio:.3f}×)
+        </span>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  REGIME SUMMARY TABLE  (Gap 4)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_regime_table(f: float, fs: float) -> None:
+    """
+    Clean summary table comparing all three sampling regimes
+    for the current signal frequency f.
+    """
+    nyq = 2 * f
+    rows = [
+        ("Under-Sampling",   f"fs < {nyq:.0f} Hz",      "fs < 2f",  "Aliasing — info lost",       "❌", "#FDEDEC", "#E74C3C"),
+        ("Nyquist Sampling", f"fs = {nyq:.0f} Hz",      "fs = 2f",  "Marginal — noise risk",      "⚠️", "#FEF9E7", "#F39C12"),
+        ("Over-Sampling",    f"fs > {nyq:.0f} Hz",      "fs > 2f",  "Safe — perfect recovery",    "✅", "#EAFAF1", "#27AE60"),
+    ]
+    current_fs_label = f"Your fs = {fs} Hz"
+
+    header = (
+        '<div style="overflow-x:auto;margin-top:0.5rem;">'
+        '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">'
+        '<thead><tr style="background:#2E86C1;color:white;">'
+        '<th style="padding:0.5rem 0.8rem;text-align:left;">Regime</th>'
+        '<th style="padding:0.5rem 0.8rem;text-align:center;">fs Range</th>'
+        '<th style="padding:0.5rem 0.8rem;text-align:center;">Condition</th>'
+        '<th style="padding:0.5rem 0.8rem;text-align:center;">Result</th>'
+        '<th style="padding:0.5rem 0.8rem;text-align:center;">Status</th>'
+        '</tr></thead><tbody>'
+    )
+
+    body = ""
+    for name, fs_range, condition, result, status, bg, clr in rows:
+        # Highlight the current regime row
+        is_current = (
+            (name == "Under-Sampling"   and fs < nyq) or
+            (name == "Nyquist Sampling" and abs(fs - nyq) / nyq < 0.05) or
+            (name == "Over-Sampling"    and fs >= nyq * 1.05)
+        )
+        row_style = (
+            f"background:{bg};font-weight:700;border-left:4px solid {clr};"
+            if is_current else f"background:#fff;"
+        )
+        body += (
+            f'<tr style="{row_style}border-bottom:1px solid #E2E8F0;">'
+            f'<td style="padding:0.45rem 0.8rem;color:{clr};font-weight:600;">'
+            f'  {name}'
+            f'  {"← " + current_fs_label if is_current else ""}'
+            f'</td>'
+            f'<td style="padding:0.45rem 0.8rem;text-align:center;'
+            f'font-family:IBM Plex Mono,monospace;font-size:0.78rem;">{fs_range}</td>'
+            f'<td style="padding:0.45rem 0.8rem;text-align:center;'
+            f'font-family:IBM Plex Mono,monospace;font-size:0.78rem;">{condition}</td>'
+            f'<td style="padding:0.45rem 0.8rem;text-align:center;color:#4A5568;">{result}</td>'
+            f'<td style="padding:0.45rem 0.8rem;text-align:center;font-size:1rem;">{status}</td>'
+            f'</tr>'
+        )
+
+    footer = '</tbody></table></div>'
+    st.markdown(header + body + footer, unsafe_allow_html=True)

@@ -240,3 +240,101 @@ def compute_all(f: float, A: float, fs: float) -> SignalData:
         rms_error=rms,
         aliasing=(fs < 2.0 * f),
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SINC RECONSTRUCTION  (Gap 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def sinc_reconstruct(
+    t_samp: np.ndarray,
+    x_samp: np.ndarray,
+    t_cont: np.ndarray,
+    fs: float,
+) -> np.ndarray:
+    """
+    Reconstruct the signal from discrete samples using sinc interpolation.
+    This is the mathematically correct Whittaker–Shannon reconstruction:
+        x_r(t) = Σ x[n] · sinc(fs · (t − n/fs))
+
+    Args:
+        t_samp: Sample time points (s).
+        x_samp: Sample amplitudes.
+        t_cont: Dense time array for output (s).
+        fs:     Sampling frequency (Hz).
+
+    Returns:
+        Reconstructed signal array, same shape as t_cont.
+    """
+    Ts = 1.0 / fs
+    x_reconstructed = np.zeros_like(t_cont, dtype=float)
+    for n, (tn, xn) in enumerate(zip(t_samp, x_samp)):
+        x_reconstructed += xn * np.sinc((t_cont - tn) / Ts)
+    return x_reconstructed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SAMPLING REGIME CLASSIFIER  (Gap 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def classify_sampling_regime(f: float, fs: float) -> dict:
+    """
+    Classify the current sampling scenario into one of three regimes.
+
+    Returns a dict with:
+        regime:      "under" | "nyquist" | "over"
+        label:       Human-readable regime name
+        ratio:       fs / (2*f)
+        description: One-line explanation
+        color:       CSS colour for the regime badge
+    """
+    ratio = fs / (2.0 * f)
+
+    if ratio < 1.0:
+        return dict(
+            regime="under",
+            label="Under-Sampling",
+            ratio=ratio,
+            description=(
+                f"fs = {fs} Hz < 2f = {2*f:.0f} Hz. "
+                "Aliasing occurs — information is permanently lost."
+            ),
+            color="#E74C3C",
+            bg="#FDEDEC",
+        )
+    elif abs(ratio - 1.0) < 0.05:          # within 5% of Nyquist boundary
+        return dict(
+            regime="nyquist",
+            label="Nyquist Sampling",
+            ratio=ratio,
+            description=(
+                f"fs ≈ 2f = {2*f:.0f} Hz. "
+                "At the critical Nyquist boundary — marginal, any noise causes aliasing."
+            ),
+            color="#F39C12",
+            bg="#FEF9E7",
+        )
+    elif ratio < 2.0:
+        return dict(
+            regime="over",
+            label="Adequate Sampling",
+            ratio=ratio,
+            description=(
+                f"fs = {fs} Hz > 2f = {2*f:.0f} Hz. "
+                "Nyquist satisfied — signal can be reconstructed faithfully."
+            ),
+            color="#27AE60",
+            bg="#EAFAF1",
+        )
+    else:
+        return dict(
+            regime="over",
+            label="Over-Sampling",
+            ratio=ratio,
+            description=(
+                f"fs = {fs} Hz is {ratio:.1f}× the Nyquist rate. "
+                "Excellent — large safety margin, near-perfect reconstruction."
+            ),
+            color="#1A5276",
+            bg="#D6EAF8",
+        )

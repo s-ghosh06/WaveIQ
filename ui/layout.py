@@ -1,16 +1,15 @@
 """
-ui/layout.py
-────────────
-WaveIQ page orchestrator — fixes:
-  1. Real-world insight always shown (not gated by show_rw checkbox)
-  2. Error signal and FFT always shown (Display Options removed from sidebar)
-  3. Mode content passes through correctly to all mode-aware components
-  4. Clean render order, no unclosed HTML
+ui/layout.py — WaveIQ page orchestrator.
+Gap fills wired in:
+  Gap 1: Sampling regime panel + regime comparison chart
+  Gap 2: Sinc reconstruction chart
+  Gap 3: Nyquist marker already in chart_time_domain
+  Gap 4: Regime summary table
 """
 
 import streamlit as st
 
-from core.signal import compute_all
+from core.signal import compute_all, sinc_reconstruct, classify_sampling_regime
 from core.modes  import get_mode_content
 
 from ui.sidebar    import render_sidebar
@@ -20,15 +19,19 @@ from ui.components import (
     render_nyquist_panel,
     render_analysis_callout,
     render_rw_explanation,
+    render_regime_panel,
+    render_regime_table,
     render_footer,
     section_header,
 )
 from ui.charts import (
     chart_time_domain,
     chart_aliased_signal,
+    chart_reconstruction,
     chart_difference,
     chart_fft_spectrum,
     chart_nyquist_gauge,
+    chart_regime_comparison,
 )
 from utils.styles    import inject_css
 from utils.constants import PLOTLY_CONFIG
@@ -36,21 +39,30 @@ from utils.constants import PLOTLY_CONFIG
 
 def render_page() -> None:
     """
-    Full WaveIQ page render — one call per Streamlit rerun.
+    Full WaveIQ page — 100% problem statement coverage.
 
-    Order:
+    Sections:
       1.  CSS
       2.  Sidebar → params
       3.  Signal computation
-      4.  Header (left title / right mode pill)
+      4.  Header
       5.  KPI metric cards
-      6.  Mode-aware intelligent analysis callout
-      7.  Nyquist Analysis (alert + metrics + gauge)
-      8.  Signal Visualization (time-domain | aliased)
-      9.  Reconstruction Error
-      10. Frequency Domain (FFT)
-      11. Real-World Insight (mode-specific, always shown)
-      12. Footer
+      6.  Mode-aware callout
+      7.  ── Sampling Regime ──────────────────
+          Regime panel (Under/Nyquist/Over indicator)
+          Regime summary table
+          Regime comparison chart (3-panel)
+      8.  ── Nyquist Analysis ─────────────────
+          Alert panel + metrics + gauge
+      9.  ── Signal Visualization ─────────────
+          Time-domain (original + samples) | Alias signal
+      10. ── Signal Reconstruction ────────────
+          Sinc reconstruction vs original
+          Reconstruction error chart
+      11. ── Frequency Domain ──────────────────
+          FFT spectrum (original vs aliased)
+      12. ── Real-World Insight ────────────────
+      13. Footer
     """
 
     # 1. CSS
@@ -64,7 +76,11 @@ def render_page() -> None:
     mode = params["mode"]
 
     # 3. Compute
-    data = compute_all(f, A, fs)
+    data   = compute_all(f, A, fs)
+    regime = classify_sampling_regime(f, fs)
+    x_recon = sinc_reconstruct(
+        data.t_samp, data.x_samp, data.t_cont, fs
+    )
 
     # 4. Header
     render_header(mode)
@@ -75,13 +91,26 @@ def render_page() -> None:
         rms=data.rms_error, A=A, aliasing=data.aliasing,
     )
 
-    # 6. Mode-aware intelligent callout
+    # 6. Mode-aware callout
     render_analysis_callout(
         f=f, fs=fs, f_alias=data.f_alias,
         aliasing=data.aliasing, mode=mode,
     )
 
-    # 7. Nyquist Analysis
+    # ── 7. SAMPLING REGIME ──────────────────────────────────────────────
+    section_header("🎯", "Sampling Regime")
+    render_regime_panel(regime)
+    st.markdown("<br>", unsafe_allow_html=True)
+    render_regime_table(f, fs)
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.caption("📊 Side-by-side comparison: same signal at three different sampling rates")
+    st.plotly_chart(
+        chart_regime_comparison(f, A, fs),
+        use_container_width=True,
+        config=PLOTLY_CONFIG,
+    )
+
+    # ── 8. NYQUIST ANALYSIS ─────────────────────────────────────────────
     section_header("📐", "Nyquist Analysis")
     col_nyq, col_gauge = st.columns([3, 2], gap="large")
     with col_nyq:
@@ -96,11 +125,11 @@ def render_page() -> None:
             config={"displayModeBar": False},
         )
 
-    # 8. Signal Visualization
+    # ── 9. SIGNAL VISUALIZATION ─────────────────────────────────────────
     section_header("📈", "Signal Visualization")
     col_orig, col_alias = st.columns(2, gap="medium")
     with col_orig:
-        st.caption("⏱ Original Signal + Sample Points")
+        st.caption("⏱ Continuous Signal + Discrete Sample Points")
         st.plotly_chart(
             chart_time_domain(
                 data.t_cont, data.x_cont,
@@ -109,7 +138,7 @@ def render_page() -> None:
             use_container_width=True, config=PLOTLY_CONFIG,
         )
     with col_alias:
-        st.caption("👻 Aliased Signal Reconstruction")
+        st.caption("👻 Alias Signal — Phantom Frequency")
         st.plotly_chart(
             chart_aliased_signal(
                 data.t_cont, data.x_cont,
@@ -118,33 +147,46 @@ def render_page() -> None:
             use_container_width=True, config=PLOTLY_CONFIG,
         )
 
-    # 9. Reconstruction Error
-    section_header("📉", "Reconstruction Error")
-    st.caption("Point-wise difference: Original − Aliased signal")
+    # ── 10. SIGNAL RECONSTRUCTION ───────────────────────────────────────
+    section_header("🔄", "Signal Reconstruction")
+    st.caption("Whittaker-Shannon sinc interpolation from discrete samples back to continuous signal")
     st.plotly_chart(
-        chart_difference(data.t_diff, data.x_diff, data.rms_error),
-        use_container_width=True, config=PLOTLY_CONFIG,
-    )
-
-    # 10. FFT Spectrum
-    section_header("🔬", "Frequency Domain Analysis")
-    st.caption("FFT magnitude spectrum — Original vs Aliased · Nyquist boundary marked")
-    st.plotly_chart(
-        chart_fft_spectrum(
-            data.freqs_orig, data.mags_orig,
-            data.freqs_alias, data.mags_alias,
-            f, data.f_alias, fs,
+        chart_reconstruction(
+            data.t_cont, data.x_cont,
+            data.t_samp, data.x_samp,
+            x_recon, f, fs,
         ),
         use_container_width=True, config=PLOTLY_CONFIG,
     )
 
-    # 11. Real-World Insight — always shown, mode-specific content
-    section_header("🌍", "Real-World Insight")
-    content = get_mode_content(
-        mode=mode, f=f, fs=fs,
-        f_alias=data.f_alias, aliasing=data.aliasing,
-    )
-    render_rw_explanation(content, mode)
+    if params["show_diff"]:
+        st.caption("📉 Point-wise error: Original − Aliased signal")
+        st.plotly_chart(
+            chart_difference(data.t_diff, data.x_diff, data.rms_error),
+            use_container_width=True, config=PLOTLY_CONFIG,
+        )
 
-    # 12. Footer
+    # ── 11. FREQUENCY DOMAIN ────────────────────────────────────────────
+    if params["show_fft"]:
+        section_header("🔬", "Frequency Domain Analysis")
+        st.caption("FFT magnitude spectrum — Original vs Aliased · Nyquist + alias frequency marked")
+        st.plotly_chart(
+            chart_fft_spectrum(
+                data.freqs_orig, data.mags_orig,
+                data.freqs_alias, data.mags_alias,
+                f, data.f_alias, fs,
+            ),
+            use_container_width=True, config=PLOTLY_CONFIG,
+        )
+
+    # ── 12. REAL-WORLD INSIGHT ──────────────────────────────────────────
+    if params["show_rw"]:
+        section_header("🌍", "Real-World Insight")
+        content = get_mode_content(
+            mode=mode, f=f, fs=fs,
+            f_alias=data.f_alias, aliasing=data.aliasing,
+        )
+        render_rw_explanation(content, mode)
+
+    # ── 13. FOOTER ───────────────────────────────────────────────────────
     render_footer()
