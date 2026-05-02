@@ -10,6 +10,7 @@ ui/sidebar.py — WaveIQ sidebar, all issues fixed at once:
 import streamlit as st
 from core.modes import ALL_MODES
 from utils.constants import SLIDER
+from core.audio_pipeline import record_audio, preprocess_audio, extract_dominant_frequency
 
 
 def _control(key: str, min_val: float, max_val: float,
@@ -93,6 +94,82 @@ def render_sidebar() -> dict:
 
         st.divider()
 
+        # ── Real-Time Audio Input ─────────────────────────────────────────
+        st.caption("🎤  REAL-TIME AUDIO")
+        use_mic = st.toggle("🎙️ Use Audio Input", value=False)
+        if use_mic:
+            if st.button("🔴 Record Audio (5s)", use_container_width=True):
+                with st.spinner("Recording..."):
+                    res = record_audio(duration=5.0)
+                    if res["success"]:
+                        # Preprocess audio
+                        audio_data = preprocess_audio(res["audio"])
+                        audio_fs = res["fs"]
+                        
+                        # Extract and clamp frequency
+                        freq = extract_dominant_frequency(audio_data, audio_fs)
+                        f_min = float(SLIDER["f"]["min"])
+                        f_max = float(SLIDER["f"]["max"])
+                        freq_clamped = max(f_min, min(f_max, freq))
+                        
+                        # Save to session state
+                        st.session_state["audio_data"] = audio_data
+                        st.session_state["audio_fs"] = audio_fs
+                        st.session_state["f_val"] = freq_clamped
+                        st.session_state[f"__ni_f_val"] = freq_clamped
+                        
+                        st.success(f"Recorded successfully! Dominant f: {freq:.1f} Hz")
+                    else:
+                        st.error(res["error"])
+                        
+            if st.session_state.get("audio_data") is not None:
+                st.info("Using recorded audio buffer.")
+            else:
+                st.warning("No audio recorded yet. Please click Record.")
+        else:
+            # Clear audio state if toggle is off
+            if "audio_data" in st.session_state:
+                st.session_state.pop("audio_data")
+                st.session_state.pop("audio_fs")
+                
+        st.divider()
+
+        # ── Preset Demo Scenarios ─────────────────────────────────────────
+        st.caption("🎬  PRESET DEMOS")
+        col1, col2, col3 = st.columns([1, 1.2, 1], gap="small")
+        if col1.button("Clean", use_container_width=True, help="f=100, fs=800"):
+            st.session_state["f_val"] = 100
+            st.session_state["__ni_f_val"] = 100
+            st.session_state["fs_val"] = 800
+            st.session_state["__ni_fs_val"] = 800
+            st.rerun()
+        if col2.button("Nyquist", use_container_width=True, help="f=200, fs=400"):
+            st.session_state["f_val"] = 200
+            st.session_state["__ni_f_val"] = 200
+            st.session_state["fs_val"] = 400
+            st.session_state["__ni_fs_val"] = 400
+            st.rerun()
+        if col3.button("Alias", use_container_width=True, help="f=200, fs=150"):
+            st.session_state["f_val"] = 200
+            st.session_state["__ni_f_val"] = 200
+            st.session_state["fs_val"] = 150
+            st.session_state["__ni_fs_val"] = 150
+            st.rerun()
+            
+        st.divider()
+
+        # ── Signal Type ───────────────────────────────────────────────────
+        st.caption("〰️  SIGNAL SHAPE")
+        signal_type = st.selectbox(
+            "signal_type",
+            options=["Sine", "Square", "Triangle"],
+            index=0,
+            disabled=use_mic,
+            label_visibility="collapsed"
+        )
+
+        st.divider()
+
         # ── Signal Frequency ──────────────────────────────────────────────
         f = _control(
             key="f_val",
@@ -137,6 +214,20 @@ def render_sidebar() -> dict:
 
         st.divider()
 
+        # ── Advanced DSP ──────────────────────────────────────────────────
+        st.caption("🎛️  ADVANCED DSP")
+        snr_db = st.slider(
+            "Signal-to-Noise Ratio (SNR dB)",
+            min_value=10, max_value=100, value=100, step=5,
+            help="100 dB = No Noise. Lower values add more Gaussian noise."
+        )
+        apply_filter = st.checkbox(
+            "Apply Anti-Aliasing Filter", value=False,
+            help="Applies a low-pass filter at the Nyquist frequency before sampling."
+        )
+
+        st.divider()
+
         # ── Live Nyquist status ───────────────────────────────────────────
         nyq_rate = 2 * f
         aliasing = fs < nyq_rate
@@ -168,4 +259,9 @@ def render_sidebar() -> dict:
         show_diff=show_diff,
         show_fft=show_fft,
         show_rw=show_rw,
+        snr_db=float(snr_db),
+        apply_filter=apply_filter,
+        audio_data=st.session_state.get("audio_data") if use_mic else None,
+        audio_fs=st.session_state.get("audio_fs") if use_mic else None,
+        signal_type=signal_type,
     )

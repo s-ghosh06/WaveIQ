@@ -92,4 +92,11 @@ PLOTLY_CONFIG = dict(
     displayModeBar=True,
     displaylogo=False,
     modeBarButtonsToRemove=["select2d", "lasso2d"],
+    toImageButtonOptions=dict(
+        format="png",
+        filename="waveiq_graph_export",
+        height=600,
+        width=1000,
+        scale=2
+    )
 )

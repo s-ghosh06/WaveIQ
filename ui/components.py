@@ -261,6 +261,90 @@ def render_rw_explanation(content: ModeContent, mode: str) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  AI RECOMMENDER PANEL
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_ai_recommender(rec_data: dict) -> None:
+    """
+    Renders the AI-based sampling rate recommendation panel.
+    """
+    status = rec_data.get("status", "neutral")
+    rec_fs = rec_data.get("recommended_fs", 0)
+    explanation = rec_data.get("explanation", "")
+    confidence = rec_data.get("confidence", "Medium")
+
+    if status == "danger":
+        color = "#E74C3C"
+        bg = "#FDEDEC"
+        icon = "🚨"
+    elif status == "warning":
+        color = "#F39C12"
+        bg = "#FEF9E7"
+        icon = "💡"
+    elif status == "success":
+        color = "#27AE60"
+        bg = "#EAFAF1"
+        icon = "✨"
+    else:
+        color = "#2E86C1"
+        bg = "#EBF5FB"
+        icon = "🤖"
+
+    st.markdown(f"""
+    <div style="background:{bg};border-left:4px solid {color};
+                border-radius:8px;padding:1rem;margin-top:1rem;margin-bottom:1rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+            <span style="font-weight:700;color:{color};font-size:1rem;">
+                {icon} AI Recommendation: set fs ≥ {rec_fs} Hz
+            </span>
+            <span style="font-size:0.75rem;padding:0.2rem 0.5rem;background:white;
+                         border:1px solid {color}44;border-radius:4px;color:{color};">
+                Confidence: {confidence}
+            </span>
+        </div>
+        <div style="color:#2D3748;font-size:0.9rem;line-height:1.4;">
+            {explanation}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STRONG ALIASING ALERT
+# ─────────────────────────────────────────────────────────────────────────────
+
+def render_aliasing_alert(f: float, fs: float) -> None:
+    """Strong visual alert for aliasing status."""
+    ratio = fs / (2 * f) if f > 0 else 2.0
+    
+    if ratio < 1.0:
+        color = "#FFFFFF"
+        bg = "#E74C3C" # Red
+        icon = "🚨"
+        title = "CRITICAL: ALIASING DETECTED"
+        msg = f"Sampling rate (fs={fs}Hz) is below the Nyquist limit (2f={2*f}Hz). Original signal is irreversibly distorted."
+    elif ratio < 1.05:
+        color = "#1A252F"
+        bg = "#F1C40F" # Yellow
+        icon = "⚠️"
+        title = "WARNING: NYQUIST EDGE"
+        msg = f"Sampling rate (fs={fs}Hz) is dangerously close to the Nyquist limit. Minimal safety margin against noise."
+    else:
+        color = "#FFFFFF"
+        bg = "#27AE60" # Green
+        icon = "✅"
+        title = "SAFE: OPTIMAL SAMPLING"
+        msg = f"Sampling rate (fs={fs}Hz) safely exceeds the Nyquist limit. Signal fidelity is preserved."
+
+    st.markdown(f"""
+    <div style="background:{bg}; color:{color}; text-align:center; padding:0.6rem 1rem; border-radius:8px; margin: 0.5rem 0 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h4 style="margin:0; font-size:1rem; font-weight:700; letter-spacing:0.02em; color:{color};">{icon} {title}</h4>
+        <p style="margin:0.2rem 0 0; font-size:0.85rem; font-weight:500;">{msg}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  FOOTER
 # ─────────────────────────────────────────────────────────────────────────────
 

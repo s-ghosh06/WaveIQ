@@ -107,6 +107,26 @@ section[data-testid="stSidebar"] input[type="number"]::placeholder {
 section[data-testid="stSidebar"] .stNumberInput label {
     display: none !important;
 }
+/* Hide the 'Press Enter to apply' text since it overlaps with the centered numbers. 
+   We already have the explicit instruction right above the box. */
+section[data-testid="stSidebar"] .stNumberInput [data-testid="InputInstructions"] {
+    display: none !important;
+}
+
+/* Selectbox — dark bg, WHITE text, consistent border */
+section[data-testid="stSidebar"] div[data-baseweb="select"] > div {
+    background-color: #1a3a5c !important;
+    border: 1px solid rgba(255,255,255,0.35) !important;
+    border-radius: 8px !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="select"] span {
+    color: #FFFFFF !important;
+    font-size: 1rem !important;
+    font-weight: 600 !important;
+}
+section[data-testid="stSidebar"] div[data-baseweb="select"] svg {
+    fill: #FFFFFF !important;
+}
 
 /* Sidebar captions */
 section[data-testid="stSidebar"] .stCaption p {
@@ -157,6 +177,21 @@ section[data-testid="stSidebar"] .stCheckbox { margin-bottom: 0.1rem !important;
 section[data-testid="stSidebar"] .stCheckbox label {
     font-size: 0.83rem !important;
     color: #E8F4FD !important;
+}
+
+/* Sidebar buttons (e.g., Record Audio) */
+section[data-testid="stSidebar"] .stButton button {
+    background-color: #2E86C1 !important;
+    border: 1px solid #1A5276 !important;
+    border-radius: 6px !important;
+}
+section[data-testid="stSidebar"] .stButton button:hover {
+    background-color: #1A5276 !important;
+}
+section[data-testid="stSidebar"] .stButton button p,
+section[data-testid="stSidebar"] .stButton button div {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
 }
 
 /* ═══════════════════════════════════════════════════

@@ -7,6 +7,7 @@ Pure functions — no Streamlit, no Plotly dependencies.
 
 import numpy as np
 from scipy.fft import fft, fftfreq
+from scipy.signal import butter, filtfilt
 from dataclasses import dataclass
 
 
@@ -55,21 +56,32 @@ def generate_continuous_signal(
     A: float,
     duration: float,
     num_points: int = 4000,
+    signal_type: str = "Sine"
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Generate a high-resolution continuous sine wave for smooth plotting.
+    Generate a high-resolution continuous signal for smooth plotting.
 
     Args:
         f:          Signal frequency in Hz.
         A:          Peak amplitude.
         duration:   Duration in seconds.
         num_points: Number of points for smooth rendering.
+        signal_type: "Sine", "Square", or "Triangle".
 
     Returns:
         (t, x) — time array (s) and amplitude array.
     """
     t = np.linspace(0, duration, num_points)
-    x = A * np.sin(2 * np.pi * f * t)
+    
+    if signal_type == "Square":
+        from scipy.signal import square
+        x = A * square(2 * np.pi * f * t)
+    elif signal_type == "Triangle":
+        from scipy.signal import sawtooth
+        x = A * sawtooth(2 * np.pi * f * t, width=0.5)
+    else:
+        x = A * np.sin(2 * np.pi * f * t)
+        
     return t, x
 
 
@@ -95,6 +107,36 @@ def sample_signal(
     t_samples = np.linspace(0, duration, n_samples)
     x_samples = A * np.sin(2 * np.pi * f * t_samples)
     return t_samples, x_samples
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ADVANCED DSP (NOISE + FILTERING)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def add_noise(x: np.ndarray, snr_db: float) -> np.ndarray:
+    """Adds Additive White Gaussian Noise (AWGN) based on a target SNR."""
+    if snr_db >= 100.0:
+        return x
+    
+    signal_power = np.mean(x ** 2)
+    if signal_power == 0:
+        return x
+        
+    snr_linear = 10 ** (snr_db / 10)
+    noise_power = signal_power / snr_linear
+    noise = np.sqrt(noise_power) * np.random.randn(len(x))
+    
+    return x + noise
+
+def apply_lowpass_filter(x: np.ndarray, cutoff: float, fs_cont: float, order: int = 4) -> np.ndarray:
+    """Applies a zero-phase Butterworth lowpass filter."""
+    nyq = 0.5 * fs_cont
+    normal_cutoff = cutoff / nyq
+    if normal_cutoff >= 1.0 or normal_cutoff <= 0:
+        return x
+        
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return filtfilt(b, a, x)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -199,26 +241,68 @@ def compute_fft(
 #  MAIN COMPUTE PIPELINE
 # ─────────────────────────────────────────────────────────────────────────────
 
-def compute_all(f: float, A: float, fs: float) -> SignalData:
+def compute_all(f: float, A: float, fs: float, snr_db: float = 100.0, apply_filter: bool = False, audio_data: np.ndarray = None, audio_fs: float = None, signal_type: str = "Sine") -> SignalData:
     """
     Full computation pipeline — call this once per UI interaction.
 
     Args:
-        f:  Signal frequency (Hz).
+        f:  Signal frequency (Hz) (Fundamental or dominant).
         A:  Amplitude.
         fs: Sampling frequency (Hz).
+        snr_db: Signal-to-Noise Ratio in dB.
+        apply_filter: Whether to apply anti-aliasing lowpass filter.
+        audio_data: Optional real audio array to use as the source signal.
+        audio_fs: Sampling rate of the real audio array.
 
     Returns:
         SignalData dataclass with all arrays and derived scalars.
     """
-    # Show at least 5 complete cycles
-    duration = max(0.05, 5.0 / f)
+    if audio_data is not None and audio_fs is not None:
+        duration = len(audio_data) / audio_fs
+        t_cont = np.linspace(0, duration, len(audio_data))
+        x_cont = audio_data
+        A = float(np.max(np.abs(x_cont))) if len(x_cont) > 0 else 1.0
+    else:
+        # Show at least 5 complete cycles
+        duration = max(0.05, 5.0 / f)
+        # Generate synthetic signal
+        t_cont, x_cont = generate_continuous_signal(f, A, duration, signal_type=signal_type)
+    
+    # 1. Apply Advanced DSP to Continuous Signal
+    if snr_db < 100.0:
+        x_cont = add_noise(x_cont, snr_db)
+        
+    fs_cont = audio_fs if audio_data is not None else (len(t_cont) / duration)
+    
+    if apply_filter:
+        # Anti-aliasing filter at Nyquist frequency of the sampling rate
+        x_cont = apply_lowpass_filter(x_cont, cutoff=fs/2.0, fs_cont=fs_cont)
 
-    # Generate signals
-    t_cont, x_cont   = generate_continuous_signal(f, A, duration)
-    t_samp, x_samp   = sample_signal(f, A, fs, duration)
-    f_alias           = compute_alias_frequency(f, fs)
-    t_alias, x_alias  = generate_aliased_signal(f_alias, A, duration)
+    # 2. Sample the Enhanced Signal
+    if audio_data is not None:
+        from core.audio_pipeline import downsample_signal
+        t_samp, x_samp = downsample_signal(x_cont, fs_cont, fs)
+    elif snr_db < 100.0 or apply_filter:
+        t_samp, _ = sample_signal(f, A, fs, duration)
+        x_samp = np.interp(t_samp, t_cont, x_cont)
+    else:
+        t_samp, x_samp = sample_signal(f, A, fs, duration)
+        
+    f_alias = compute_alias_frequency(f, fs)
+    
+    # 3. Generate Alias/Reconstructed Signal
+    if audio_data is not None:
+        # Reconstruct the complex aliased signal using sinc interpolation
+        x_alias = sinc_reconstruct(t_samp, x_samp, t_cont, fs)
+        t_alias = t_cont
+    else:
+        t_alias, x_alias = generate_aliased_signal(f_alias, A, duration)
+        # If filtered and f is above Nyquist, the alias amplitude should also be suppressed
+        if apply_filter and f > fs / 2.0:
+            x_alias = apply_lowpass_filter(x_alias, cutoff=fs/2.0, fs_cont=len(t_alias)/duration)
+        # Add noise to alias signal to keep it consistent
+        if snr_db < 100.0:
+            x_alias = add_noise(x_alias, snr_db)
 
     # Error
     diff = compute_error_signal(x_cont, x_alias)

@@ -8,15 +8,19 @@ Gap fills wired in:
 """
 
 import streamlit as st
+import numpy as np
 
 from core.signal import compute_all, sinc_reconstruct, classify_sampling_regime
 from core.modes  import get_mode_content
+from core.recommender import get_recommendation
 
 from ui.sidebar    import render_sidebar
 from ui.components import (
     render_header,
     render_metric_cards,
+    render_aliasing_alert,
     render_nyquist_panel,
+    render_ai_recommender,
     render_analysis_callout,
     render_rw_explanation,
     render_regime_panel,
@@ -74,9 +78,19 @@ def render_page() -> None:
     A    = params["A"]
     fs   = params["fs"]
     mode = params["mode"]
+    snr_db = params.get("snr_db", 100.0)
+    apply_filter = params.get("apply_filter", False)
+    audio_data = params.get("audio_data")
+    audio_fs = params.get("audio_fs")
+    signal_type = params.get("signal_type", "Sine")
 
     # 3. Compute
-    data   = compute_all(f, A, fs)
+    data   = compute_all(
+        f=f, A=A, fs=fs, 
+        snr_db=snr_db, apply_filter=apply_filter,
+        audio_data=audio_data, audio_fs=audio_fs,
+        signal_type=signal_type
+    )
     regime = classify_sampling_regime(f, fs)
     x_recon = sinc_reconstruct(
         data.t_samp, data.x_samp, data.t_cont, fs
@@ -90,6 +104,9 @@ def render_page() -> None:
         f=f, fs=fs, f_alias=data.f_alias,
         rms=data.rms_error, A=A, aliasing=data.aliasing,
     )
+    
+    # 5.5 Strong Aliasing Alert
+    render_aliasing_alert(f, fs)
 
     # 6. Mode-aware callout
     render_analysis_callout(
@@ -124,6 +141,10 @@ def render_page() -> None:
             use_container_width=True,
             config={"displayModeBar": False},
         )
+        
+    # AI Recommendation Panel
+    rec_data = get_recommendation(f, fs, data.f_alias, mode, data.aliasing)
+    render_ai_recommender(rec_data)
 
     # ── 9. SIGNAL VISUALIZATION ─────────────────────────────────────────
     section_header("📈", "Signal Visualization")
@@ -146,6 +167,33 @@ def render_page() -> None:
             ),
             use_container_width=True, config=PLOTLY_CONFIG,
         )
+
+    # ── 9.5 AUDIO PLAYBACK ──────────────────────────────────────────────
+    section_header("🔊", "Audio Playback")
+    col_play1, col_play2 = st.columns(2, gap="medium")
+    
+    # Calculate continuous sampling rate used for original signal
+    if audio_data is not None and audio_fs is not None:
+        duration = len(audio_data) / audio_fs
+    else:
+        duration = max(0.05, 5.0 / f)
+    fs_cont = len(data.x_cont) / duration
+
+    with col_play1:
+        st.caption("▶ Play Original Signal")
+        if len(data.x_cont) > 0:
+            sig_orig = data.x_cont / np.max(np.abs(data.x_cont)) if np.max(np.abs(data.x_cont)) > 0 else data.x_cont
+            st.audio(sig_orig.astype(np.float32), sample_rate=int(fs_cont))
+        else:
+            st.warning("Signal empty")
+            
+    with col_play2:
+        st.caption("▶ Play Reconstructed (Sampled) Signal")
+        if len(data.x_alias) > 0:
+            sig_alias = data.x_alias / np.max(np.abs(data.x_alias)) if np.max(np.abs(data.x_alias)) > 0 else data.x_alias
+            st.audio(sig_alias.astype(np.float32), sample_rate=int(fs_cont))
+        else:
+            st.warning("Signal empty")
 
     # ── 10. SIGNAL RECONSTRUCTION ───────────────────────────────────────
     section_header("🔄", "Signal Reconstruction")
